@@ -4,6 +4,8 @@ import (
 	"os"
 	"encoding/json"
 	"sort"
+	"io"
+	"log"
 )
 
 func doReduce(
@@ -53,32 +55,33 @@ func doReduce(
 	files := make([]*os.File, nMap)
 
 	temp := make(map[string][]string)
-	keys := make([]string, 100)
+	var keys []string
 
 	for i:= 0; i<nMap; i ++{
 		reduce_name := reduceName(jobName, i, reduceTask)
 		files[i], _ = os.Open(reduce_name)
 		defer files[i].Close()
-		var data KeyValue
+
 		dec := json.NewDecoder(files[i])
-		for dec.Decode(&data) != nil {
-			temp_key := data.Key
-			if _, ok := temp[temp_key]; ok{
-				temp[temp_key] = append(temp[temp_key], data.Value)
-			}else{
-				keys = append(keys, temp_key)
-				temp[temp_key] = make([]string, 100)
+		for {
+			var data KeyValue
+			if err := dec.Decode(&data); err == io.EOF {
+				break
+			} else if err != nil {
+				log.Fatal(err)
 			}
+			temp_key := data.Key
+			if _, ok := temp[temp_key]; !ok {
+				keys = append(keys, temp_key)
+			}
+			temp[temp_key] = append(temp[temp_key], data.Value)
 		}
 	}
-
 	sort.Strings(keys)
 	output_file, _ := os.Create(outFile)
 	defer output_file.Close()
 	json_writers := json.NewEncoder(output_file)
 	for _, key := range keys {
-		reduce_v := reduceF(key, temp[key])
-		result := KeyValue{key, reduce_v}
-		json_writers.Encode(&result)
+		json_writers.Encode(&KeyValue{key, reduceF(key, temp[key])})
 	}
 }
