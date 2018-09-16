@@ -3,6 +3,7 @@ package mapreduce
 import (
 	"fmt"
 	"strconv"
+	"sync"
 )
 
 // Debugging enabled?
@@ -22,6 +23,17 @@ type jobPhase string
 const (
 	mapPhase    jobPhase = "mapPhase"
 	reducePhase          = "reducePhase"
+)
+
+type TaskMap struct{
+	sync.RWMutex
+	m map[int]int
+}
+
+const(
+	taskInit int = 0
+	taskAsssign int = 1
+	taskComplete int =2
 )
 
 // KeyValue is a type used to hold the key/value pairs passed to the map and

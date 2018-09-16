@@ -34,23 +34,68 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	// Your code here (Part III, Part IV).
 	//
 	var wg sync.WaitGroup
-	for i:= 0; i<ntasks; i++{
-		worker := <- registerChan
-		wg.Add(1)
-		go func(worker string, i int){
-			fmt.Printf("worker %s DoTask: %d begin\n", worker, i)
-			args := &DoTaskArgs{JobName:jobName, File:mapFiles[i], Phase:phase, TaskNumber:i, NumOtherPhase:n_other}
-			ok := call(worker, "Worker.DoTask", args, new(struct{}))
-			if ok == false {
-				fmt.Printf("worker %s DoTask: %d error\n", worker, i)
-			}
-			fmt.Printf("worker %s DoTask: %d sucess\n", worker, i)
-			wg.Done()
-			registerChan <- worker
-		}(worker, i)
+
+
+	var task_mgr = TaskMap{m: make(map[int]int)}
+	for i:=0; i< ntasks; i ++{
+		task_mgr.m[i] = taskInit
 	}
-	wg.Wait()
-	fmt.Printf("Schedule: %v done\n", phase)
+
+	for {
+		all_complete, _ := IsAllState(task_mgr, taskComplete)
+		if all_complete{
+			fmt.Printf("Schedule: %v TaskComplete\n", phase)
+			break
+		}
+
+		for {
+			all_assagn, task_index := IsAllState(task_mgr, taskAsssign)
+			if all_assagn{
+				fmt.Printf("Schedule: %v AssignComplete\n", phase)
+				wg.Wait()
+				break
+			}
+			worker := <- registerChan
+
+			task_mgr.Lock()
+			task_mgr.m[task_index] = taskAsssign
+			task_mgr.Unlock()
+			wg.Add(1)
+			go func(worker string, i int){
+				fmt.Printf("worker %s AssignTask: %d \n", worker, i)
+				args := &DoTaskArgs{JobName:jobName, File:mapFiles[i], Phase:phase, TaskNumber:i, NumOtherPhase:n_other}
+				ok := call(worker, "Worker.DoTask", args, new(struct{}))
+
+				task_state := taskComplete
+				if !ok {
+					task_state = taskInit
+				}
+				task_mgr.Lock()
+				task_mgr.m[task_index] = task_state
+				task_mgr.Unlock()
+
+				// 这里的chan 是无缓冲的chan，必须注意先发送完成，然后添加worker
+				// 反之，因为chan无缓冲，只添加不读取导致阻塞，不发送完成，程序一直等待！
+				wg.Done()
+				if ok{
+					registerChan <- worker
+				}
+				fmt.Printf("worker %s AssignTask: %d Result %d\n", worker, i, ok)
+			}(worker, task_index)
+		}
+	}
 }
+
+func IsAllState(m TaskMap, state int) (bool, int){
+	m.RLock()
+	defer m.RUnlock()
+	for task_index := range m.m{
+		if m.m[task_index] < state{
+			return false, task_index
+		}
+	}
+	return true, 0
+}
+
 
 
