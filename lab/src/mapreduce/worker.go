@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"net/rpc"
-	"os"
 	"sync"
 	"time"
 )
@@ -101,6 +100,7 @@ func (wk *Worker) Shutdown(_ *struct{}, res *ShutdownReply) error {
 	defer wk.Unlock()
 	res.Ntasks = wk.nTasks
 	wk.nRPC = 1
+	wk.l.Close()
 	return nil
 }
 
@@ -130,8 +130,8 @@ func RunWorker(MasterAddress string, me string,
 	wk.parallelism = parallelism
 	rpcs := rpc.NewServer()
 	rpcs.Register(wk)
-	os.Remove(me) // only needed for "unix"
-	l, e := net.Listen("unix", me)
+	//os.Remove(me) // only needed for "unix"
+	l, e := net.Listen("tcp", me)
 	if e != nil {
 		log.Fatal("RunWorker: worker ", me, " error: ", e)
 	}
